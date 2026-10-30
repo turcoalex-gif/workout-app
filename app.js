@@ -2,7 +2,8 @@
 'use strict';
 const W = window.WO;
 let st = null;                 // persisted app state
-const UI = {tab:'today', plan:null, tier:null, eqId:null, logSeg:'history', editId:null, statsEx:null, storage:'…', persisted:null};
+const PT = W.PT, PG = W.PG;
+const UI = {useProg:true, progView:null, progSetup:null, tab:'today', plan:null, tier:null, eqId:null, logSeg:'history', editId:null, statsEx:null, storage:'…', persisted:null};
 const $ = s => document.querySelector(s);
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const M = () => W.exMap(st);
@@ -78,7 +79,7 @@ function barChart(labels, vals, o={}){
 const TITLES={today:'Today',log:'Log',stats:'Stats',goals:'Goals',settings:'Settings'};
 function render(){
   document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.v===UI.tab));
-  $('#title').textContent = UI.editId? 'Edit workout' : (UI.tab==='today'&&st.active? 'In progress' : TITLES[UI.tab]);
+  $('#title').textContent = UI.editId? 'Edit workout' : (UI.tab==='today'&&st.active? 'In progress' : UI.tab==='goals'&&(UI.progView||UI.progSetup)? 'Program' : TITLES[UI.tab]);
   $('#hdrsub').textContent = UI.tab==='today'&&st.active? '' : fmtDate(today());
   const v=$('#view');
   v.innerHTML = UI.editId? viewEdit() : ({today:viewToday,log:viewLog,stats:viewStats,goals:viewGoals,settings:viewSettings}[UI.tab])();
@@ -101,6 +102,8 @@ function viewToday(){
   const lb=st.settings.lastBackup; const nW=W.finished(st).length;
   if(nW>=3 && (!lb || W.daysBetween(lb.slice(0,10),today())>14)) h+=`<div class="banner" data-a="backup">Last backup: ${lb?lb.slice(0,10):'never'}. Tap to save a backup file (protects against Safari clearing data).</div>`;
   h+=goalChips();
+  if(st.program){ const ps=PG.session(st.program,U()); const on=UI.useProg!==false;
+    h+=`<div class="card" style="padding:10px 12px;margin:6px 0"><div class="row"><div class="grow" data-a="progOpen"><span class="pill am">Program</span> <b>${esc(PG.byId(st.program.id).name)}</b><div class="mono mu tiny">Next: ${esc(ps?ps.label:'complete')}</div></div><label class="row small"><input type="checkbox" data-c="useProg" ${on?'checked':''}> Include</label></div></div>`; }
   h+=`<label class="lb">Workout length</label><div class="chips">`+[15,30,45,60,90].map(t=>`<button class="chip ${t==tier?'on':''}" data-a="tier" data-v="${t}">${t} min</button>`).join('')+'</div>';
   h+=`<label class="lb">Equipment</label><div class="chips">`+st.equipmentSets.map(e=>`<button class="chip ${e.id===eqId?'on':''}" data-a="eq" data-v="${e.id}">${esc(e.name)}</button>`).join('')+'</div>';
   h+=`<button class="btn-am btn-big" data-a="generate">Generate workout</button>`;
@@ -121,6 +124,7 @@ function rxText(it){
   if(it.kind==='cardio') return esc(it.presc.text||'');
   if(it.kind==='flow') return it.drills.map(d=>esc(exName(d.exId))+' '+W.fmtSec(d.sec)).join(' · ');
   const p=it.presc, n=it.sets.length;
+  if(p&&p.style==='prog') return esc(W.progText(it.sets,U(),it.kind))+(it.rest?` · rest ${it.rest}s`:'');
   if(it.kind==='hold') return `${n} × ${W.fmtSec(p.sec)}${it.rest?` · rest ${it.rest}s`:''}`;
   const rr = p.lo===p.hi? p.lo : `${p.lo}–${p.hi}`;
   if(it.kind==='bw') return `${n} × ${rr} ${u}${it.rest?` · rest ${it.rest}s`:''}`;
@@ -130,11 +134,13 @@ function viewPlan(){
   const p=UI.plan; let h=`<div class="card"><div class="row"><div class="grow"><h3>${p.tier} min · ${esc(p.eqName)}</h3><div class="mono mu small">Est. ${p.estMin} min incl. ${p.warmMin} min warm-up</div><div class="mono mu tiny">${esc(p.split)}</div></div></div>`;
   h+=p.notes.map(n=>`<div class="why">${esc(n)}</div>`).join('')+'</div>';
   h+=`<div class="card"><h3>Warm-up · ${p.warmMin} min</h3><div class="mono mu small">Easy cardio 2–3 min, then leg swings, arm circles, hip openers; 1–2 lighter ramp-up sets before heavy lifts.</div></div>`;
-  p.items.forEach((it,i)=>{ h+=`<div class="card"><div class="row"><div class="grow"><h3>${esc(exName(it.exId))}</h3><div class="rx">${rxText(it)}</div></div><span class="pill">${it.estMin}m</span></div><div class="why">${esc(it.presc.why||'')}</div>
+  p.items.forEach((it,i)=>{ h+=`<div class="card"><div class="row"><div class="grow">${progBadge(it)}<h3>${esc(exName(it.exId))}</h3><div class="rx">${rxText(it)}</div></div><span class="pill">${it.estMin}m</span></div><div class="why">${esc(it.presc.why||'')}</div>
     <div class="row" style="margin-top:8px">${it.kind!=='flow'?`<button class="btn-sm grow" data-a="swap" data-i="${i}">Swap</button>`:''}<button class="btn-sm grow btn-ghost" data-a="planRemove" data-i="${i}">Remove</button></div></div>`; });
   h+=`<button class="btn-am btn-big" data-a="start">Start workout</button><div class="row"><button class="grow" data-a="generate">Regenerate</button><button class="grow btn-ghost" data-a="addEx">+ Exercise</button><button class="grow btn-ghost" data-a="planCancel">Cancel</button></div>`;
   return h;
 }
+function progBadge(it){ const g=it.presc&&it.presc.prog; if(!g) return ''; const R={main:'main',supp:'supplemental',assist:'assistance',opt:'optional'}; return `<span class="pill am">${esc(g.label)} · ${R[g.role]||g.role}</span>`; }
+function setNo(s,j){ return `${j+1}${s.amrap?'<sup class="am">+</sup>':''}`; }
 function setRows(it,i,live){
   const ex=M()[it.exId]; const k=it.kind;
   let h='';
@@ -143,8 +149,9 @@ function setRows(it,i,live){
   if(k==='hold') h+=`<div class="colhd hold"><span>#</span><span>seconds</span><span>timer</span><span></span></div>`;
   it.sets.forEach((s,j)=>{
     const cls=k==='w'?'':k; const d=s.done?'done':'';
-    if(k==='w') h+=`<div class="set ${d}"><span class="n">${j+1}</span><input inputmode="decimal" data-c="set" data-i="${i}" data-s="${j}" data-f="w" value="${s.w??''}" aria-label="weight"><input inputmode="numeric" data-c="set" data-i="${i}" data-s="${j}" data-f="reps" value="${s.reps??''}" aria-label="reps"><input inputmode="decimal" data-c="set" data-i="${i}" data-s="${j}" data-f="rpe" value="${s.rpe??''}" placeholder="–" aria-label="RPE"><button class="tick" data-a="tick" data-i="${i}" data-s="${j}">✓</button></div>`;
-    else if(k==='bw') h+=`<div class="set bw ${d}"><span class="n">${j+1}</span><input inputmode="numeric" data-c="set" data-i="${i}" data-s="${j}" data-f="reps" value="${s.reps??''}"><input inputmode="decimal" data-c="set" data-i="${i}" data-s="${j}" data-f="rpe" value="${s.rpe??''}" placeholder="–"><button class="tick" data-a="tick" data-i="${i}" data-s="${j}">✓</button></div>`;
+    if(s.lbl&&it.presc&&it.presc.prog) h+=`<div class="mono tiny mu" style="margin:6px 0 -4px 38px">${esc(s.lbl)}${s.amrap?' · as many reps as possible':''}</div>`;
+    if(k==='w') h+=`<div class="set ${d}"><span class="n">${setNo(s,j)}</span><input inputmode="decimal" data-c="set" data-i="${i}" data-s="${j}" data-f="w" value="${s.w??''}" aria-label="weight"><input inputmode="numeric" data-c="set" data-i="${i}" data-s="${j}" data-f="reps" value="${s.reps??''}" aria-label="reps"><input inputmode="decimal" data-c="set" data-i="${i}" data-s="${j}" data-f="rpe" value="${s.rpe??''}" placeholder="–" aria-label="RPE"><button class="tick" data-a="tick" data-i="${i}" data-s="${j}">✓</button></div>`;
+    else if(k==='bw') h+=`<div class="set bw ${d}"><span class="n">${setNo(s,j)}</span><input inputmode="numeric" data-c="set" data-i="${i}" data-s="${j}" data-f="reps" value="${s.reps??''}"><input inputmode="decimal" data-c="set" data-i="${i}" data-s="${j}" data-f="rpe" value="${s.rpe??''}" placeholder="–"><button class="tick" data-a="tick" data-i="${i}" data-s="${j}">✓</button></div>`;
     else h+=`<div class="set hold ${d}"><span class="n">${j+1}</span><input inputmode="numeric" data-c="set" data-i="${i}" data-s="${j}" data-f="sec" value="${s.sec??''}"><button class="tick btn-sm" data-a="holdStart" data-i="${i}" data-s="${j}">▶</button><button class="tick" data-a="tick" data-i="${i}" data-s="${j}">✓</button></div>`;
   });
   h+=`<div class="row" style="margin-top:6px"><button class="btn-sm grow btn-ghost" data-a="addSet" data-i="${i}">+ Set</button><button class="btn-sm grow btn-ghost" data-a="delSet" data-i="${i}">− Set</button>${live?`<button class="btn-sm grow btn-ghost" data-a="itemMenu" data-i="${i}">⋯</button>`:`<button class="btn-sm grow btn-ghost btn-bad" data-a="itemDel" data-i="${i}">Remove</button>`}</div>`;
@@ -152,7 +159,7 @@ function setRows(it,i,live){
 }
 function itemCard(it,i,live){
   const done=W.itemDone(it);
-  let h=`<div class="card ${done?'done':''}" id="it${i}"><div class="row"><div class="grow"><h3>${esc(exName(it.exId))}</h3><div class="rx">${rxText(it)}</div></div>${done?'<span class="am" style="font-size:24px">✓</span>':''}</div>`;
+  let h=`<div class="card ${done?'done':''}" id="it${i}"><div class="row"><div class="grow">${progBadge(it)}<h3>${esc(exName(it.exId))}</h3><div class="rx">${rxText(it)}</div></div>${done?'<span class="am" style="font-size:24px">✓</span>':''}</div>`;
   if(it.presc&&it.presc.why) h+=`<div class="why">${esc(it.presc.why)}</div>`;
   if(it.kind==='cardio'){ const c=it.cardio;
     h+=`<div class="row" style="margin-top:8px"><div class="grow"><label class="lb">Minutes</label><input inputmode="decimal" data-c="cardio" data-i="${i}" data-f="min" value="${c.min??''}"></div><div class="grow"><label class="lb">Distance</label><input inputmode="decimal" data-c="cardio" data-i="${i}" data-f="dist" value="${c.dist??''}"></div><div style="width:84px"><label class="lb">Unit</label><select data-c="cardio" data-i="${i}" data-f="unit">${['mi','km','m','yd'].map(u=>`<option ${c.unit===u?'selected':''}>${u}</option>`).join('')}</select></div><div style="width:64px"><label class="lb">RPE</label><input inputmode="decimal" data-c="cardio" data-i="${i}" data-f="rpe" value="${c.rpe??''}"></div></div>
@@ -210,14 +217,22 @@ function viewLog(){
       h+=b.slice().reverse().slice(0,40).map(r=>`<div class="list-item"><div class="grow"><b class="mono" style="font-size:20px">${r.weight}</b> <span class="mono mu small">${r.waist?'waist '+r.waist:''} ${r.bf?r.bf+'%':''}</span><div class="mono mu tiny">${r.date}</div></div><button class="btn-sm btn-ghost" data-a="delRec" data-k="body" data-v="${r.id}">✕</button></div>`).join(''); }
   }
   if(UI.logSeg==='prt'){
-    const pg=st.goals.find(g=>g.type==='prt');
-    h+=`<div class="card"><h3>PRT result (mock or official)</h3><div class="row"><div class="grow"><label class="lb">Push-ups</label><input id="pPu" inputmode="numeric"></div><div class="grow"><label class="lb">Plank m:ss</label><input id="pPl" inputmode="numeric" placeholder="3:10"></div></div>
-     <div class="row"><div class="grow"><label class="lb">Cardio event</label><select id="pEv">${Object.entries(PRT_CARDIO).map(([k,v])=>`<option value="${k}" ${(pg&&pg.cardioEvent||'run')===k?'selected':''}>${v.label}</option>`).join('')}</select></div><div style="width:120px"><label class="lb">Time m:ss</label><input id="pCt" inputmode="numeric" placeholder="11:45"></div></div>
-     <div class="row"><div class="grow"><label class="lb">Date</label><input id="pDate" type="date" value="${today()}"></div><label class="row small" style="margin-top:28px"><input type="checkbox" id="pOff"> Official</label></div>
+    const pg=W.prtGoal(st); const pf=st.profile||{}; const k=W.prtKey(st,today());
+    h+=`<div class="card" data-live="prt"><h3>PRT result (practice or official)</h3>
+     ${k.key?`<div class="mono mu tiny">Scoring as ${pf.sex==='M'?'male':'female'} ${k.bracket} (age ${k.age} on the test date) · official Guide-5A tables</div>`:`<div class="banner" data-a="tab" data-v="settings">${esc(k.err)} Tap to open Settings.</div>`}
+     <div class="row"><div class="grow"><label class="lb">Push-ups</label><input id="pPu" inputmode="numeric"></div><div class="grow"><label class="lb">Plank m:ss</label><input id="pPl" inputmode="numeric" placeholder="3:10"></div></div>
+     <div class="row"><div class="grow"><label class="lb">Cardio event</label><select id="pEv">${Object.entries(PRT_CARDIO).map(([kk,v])=>`<option value="${kk}" ${(pg&&pg.cardioEvent||'run')===kk?'selected':''}>${v.label}</option>`).join('')}</select></div><div style="width:120px"><label class="lb" id="pCtL">Time m:ss</label><input id="pCt" inputmode="numeric" placeholder="11:45"></div></div>
+     <div class="row"><div class="grow"><label class="lb">Date</label><input id="pDate" type="date" value="${today()}"></div><div class="grow"><label class="lb">Altitude</label><select id="pAlt"><option value="sea" ${pf.altitude!=='alt'?'selected':''}>&lt; 5,000 ft</option><option value="alt" ${pf.altitude==='alt'?'selected':''}>&gt; 5,000 ft</option></select></div></div>
+     <label class="lb">Medically waived events</label><div class="row wrap small">${[['pushups','Push-ups'],['plank','Plank'],['cardio','Cardio']].map(([kk,l])=>`<label class="row" style="margin-right:10px"><input type="checkbox" class="pW" value="${kk}"> ${l}</label>`).join('')}<label class="row" style="margin-left:auto"><input type="checkbox" id="pOff"> Official</label></div>
+     <div id="pScore"></div>
      <button class="btn-am btn-big" data-a="savePRT">Save result</button>
-     <p class="mono mu tiny">Raw results only — scoring tables are not built in. Score your result against the official tables (OPNAVINST 6110.1L, PRP Guide-5A, Dec 2025) and put your target scores in Goals.</p></div>`;
+     <p class="mono mu tiny">${prtCite()}</p></div>`;
     const t=st.prt.slice().sort((a,b)=>a.date.localeCompare(b.date));
-    if(t.length){ h+=prtCharts(); h+=t.slice().reverse().map(r=>`<div class="list-item"><div class="grow"><b>${r.pushups??'–'} push-ups · ${W.fmtSec(r.plankSec)} plank · ${W.fmtSec(r.cardioSec)}</b><div class="mono mu tiny">${r.date} · ${r.official?'OFFICIAL':'practice'} · ${(PRT_CARDIO[r.cardioEvent||'run']||{}).label}</div></div><button class="btn-sm btn-ghost" data-a="delRec" data-k="prt" data-v="${r.id}">✕</button></div>`).join(''); }
+    if(t.length){ h+=prtCharts(); h+=t.slice().reverse().map(r=>{ const sc=W.prtScore(st,r); const o=sc.overall;
+      const pe=kk=>{ const e=sc.events.find(x=>x.slot===kk); return e&&e.pts!=null?` <span class="am">(${e.pts})</span>`:e&&e.cat==='Failure'?' <span style="color:var(--bad)">(F)</span>':''; };
+      return `<div class="list-item" data-a="prtOpen" data-v="${r.id}"><div class="grow"><b>${r.pushups??'–'}${pe('pushups')} · ${W.fmtSec(r.plankSec)}${pe('plank')} · ${r.cardioEvent==='bike'?(r.cardioSec||'–')+' cal':W.fmtSec(r.cardioSec)}${pe('cardio')}</b>
+        <div class="mono tiny">${o&&o.name?`<span class="${o.cat==='Failure'?'':'am'}" ${o.cat==='Failure'?'style="color:var(--bad)"':''}>${esc(o.name)}${o.partial?' · Partial-Pass':''}${o.avg!=null?' · '+o.avg+' pts':''}</span>`:`<span class="mu">${esc(sc.err||'')}</span>`}</div>
+        <div class="mono mu tiny">${r.date} · ${r.official?'OFFICIAL':'practice'} · ${(PRT_CARDIO[r.cardioEvent||'run']||{}).label}${sc.bracket?` · ${sc.sex} ${sc.bracket}`:''}</div></div><button class="btn-sm btn-ghost" data-a="delRec" data-k="prt" data-v="${r.id}">✕</button></div>`; }).join(''); }
   }
   return h;
 }
@@ -225,8 +240,29 @@ function bpChart(days){
   const b=W.bpSummary(st,today()).all.filter(r=>!days||W.daysBetween(r.date,today())<days);
   return lineChart([{name:'systolic',c:'#F2A900',pts:b.map(r=>({x:r.date,y:+r.sys}))},{name:'diastolic',c:'#58A6FF',pts:b.map(r=>({x:r.date,y:+r.dia}))}],{ref:[{y:130,label:'130',c:'#7d5d00'},{y:80,label:'80',c:'#2d4f7a'}]});
 }
+function prtCite(){ const m=PT.meta; return `Scoring: ${esc(m.title)} (${esc(m.date)}), ${esc(m.tables.sea)} / ${esc(m.tables.alt)}. <a href="${esc(m.url)}" target="_blank" rel="noopener">MyNavy HR source PDF</a>. Each event scores the highest level its result meets; any event below Probationary = overall Failure; overall = level matching the average of event points (app reads it as the highest level ≤ the average). Stationary bike has no published table and isn't scored. Treadmill uses the run column.`; }
+function readPrtForm(){ const ev=$('#pEv').value, raw=$('#pCt').value; const pu=num($('#pPu').value);
+  return {date:$('#pDate').value||today(), official:$('#pOff').checked, pushups:pu===''?null:pu, plankSec:W.parseTime($('#pPl').value)||null, cardioEvent:ev, cardioSec: ev==='bike'? (num(raw)||null) : (W.parseTime(raw)||null), altitude:$('#pAlt').value, waived:[...document.querySelectorAll('.pW')].filter(c=>c.checked).map(c=>c.value), notes:''}; }
+function prtLive(){ const el=$('#pScore'); if(!el) return; const r=readPrtForm(); $('#pCtL').textContent=r.cardioEvent==='bike'?'Calories':'Time m:ss';
+  const any=r.pushups!=null||r.plankSec||r.cardioSec; el.innerHTML= any? prtScoreHtml(W.prtScore(st,r)) : ''; }
+function prtScoreHtml(sc){
+  if(!sc) return ''; if(!sc.key) return `<div class="banner">${esc(sc.err)}</div>`;
+  const fv=(e,x)=> e.slot==='pushups'? x : W.fmtSec(x);
+  let h=`<table class="tbl" style="margin-top:10px"><tr><th>Event</th><th>Result</th><th>Pts</th><th>Level</th></tr>`;
+  for(const e of sc.events) h+=`<tr><td>${esc(e.label)}</td><td>${e.waived?'waived':e.missing?'–':e.unscored?e.val+' cal':fv(e,e.val)}</td><td class="am">${e.pts!=null?e.pts:e.cat==='Failure'?'—':''}</td><td ${e.cat==='Failure'?'style="color:var(--bad)"':''}>${e.waived?'Waived':e.unscored?'No table':e.missing?'':esc(e.name)}</td></tr>`;
+  h+='</table>';
+  const o=sc.overall; if(o) h+=`<div class="card" style="margin:8px 0;padding:10px;border-color:${o.cat==='Failure'?'#5b2323':o.pass?'#5a4505':'var(--ln)'}"><div class="${o.cat==='Failure'?'':'am'}" style="font-size:22px;${o.cat==='Failure'?'color:var(--bad)':''}">${esc(o.name)}${o.partial?' · Partial-Pass':''}${o.avg!=null?` <span class="mono small">${o.avg} pts</span>`:''}</div><div class="mono tiny mu">${esc(o.why||'')}</div></div>`;
+  const needs=sc.events.filter(e=>e.next&&!e.next.max&&!e.waived).map(e=>{ const n=e.next, t=e.slot==='cardio'?'≤':'≥';
+    const a=n.nextCat?`${esc(n.nextCat.name)} (${n.nextCat.pts}): ${t} ${fv(e,n.nextCat.need)}`:''; const b=n.nextLevel&&(!n.nextCat||n.nextLevel.row!==n.nextCat.row)?`next level ${esc(n.nextLevel.name)} (${n.nextLevel.pts}): ${t} ${fv(e,n.nextLevel.need)}`:'';
+    return `<div class="why"><b>${esc(e.label)}</b> → ${[a,b].filter(Boolean).join(' · ')}</div>`; });
+  if(needs.length) h+=`<label class="lb">Needed for the next category</label>`+needs.join('');
+  if(o&&o.nextCat) h+=`<div class="mono tiny mu" style="margin-top:6px">Overall ${esc(o.nextCat.name)} needs an average of ${o.nextCat.pts} (+${o.nextCat.gap} points in total across events).</div>`;
+  h+=sc.notes.map(n=>`<div class="mono tiny mu" style="margin-top:4px">${esc(n)}</div>`).join('');
+  h+=`<div class="mono tiny mu" style="margin-top:4px">${sc.sex==='M'?'Male':'Female'} ${sc.bracket} · age ${sc.age} on the test date · ${esc(sc.table)}</div>`;
+  return h;
+}
 function prtCharts(){
-  const t=st.prt.slice().sort((a,b)=>a.date.localeCompare(b.date)); const pg=st.goals.find(g=>g.type==='prt');
+  const t=st.prt.slice().sort((a,b)=>a.date.localeCompare(b.date)); const pg=W.prtGoal(st);
   const ref=(v,l)=>v?[{y:v,label:l,c:'#3FB950'}]:[];
   return `<div class="card"><h3>Push-ups</h3>${lineChart([{name:'push-ups',c:'#F2A900',pts:t.filter(r=>r.pushups).map(r=>({x:r.date,y:+r.pushups}))}],{ref:ref(pg&&+pg.pushupsTarget,'goal')})}</div>
   <div class="card"><h3>Plank</h3>${lineChart([{name:'plank',c:'#F2A900',pts:t.filter(r=>r.plankSec).map(r=>({x:r.date,y:r.plankSec}))}],{yFmt:W.fmtSec,ref:ref(pg&&W.parseTime(pg.plankTarget),'goal')})}</div>
@@ -272,10 +308,12 @@ function viewStats(){
 
 /* ---------- GOALS ---------- */
 function viewGoals(){
+  if(UI.progView||UI.progSetup) return viewProgram();
   const act=st.goals.filter(g=>g.active!==false); const Wt=W.domainWeights(act);
   const DN={str:'Strength',cardio:'Cardio',prtm:'PRT push-up/plank',iso:'BP isometric',mob:'Mobility',custom:'Custom'};
   let h=`<p class="mono mu small">Stack as many goals as you want. Priority 1–5 sets how much session time each gets.</p>`;
   if(act.length) h+=`<div class="card"><h3>Current blend</h3><div class="mono small">${Object.keys(Wt).filter(k=>Wt[k]>0.005).sort((a,b)=>Wt[b]-Wt[a]).map(k=>`${DN[k]} <span class="am">${Math.round(Wt[k]*100)}%</span>`).join(' · ')}</div></div>`;
+  h+=programCard();
   st.goals.forEach((g,i)=>{ h+=goalCard(g,i); });
   h+=`<button class="btn-am btn-big" data-a="addGoal">+ Add goal</button>`;
   return h;
@@ -285,9 +323,13 @@ function goalCard(g,i){
   let h=`<div class="card"><div class="row"><div class="grow"><span class="pill am">${WO_GT(g.type)}</span></div><label class="row small"><input type="checkbox" data-c="goal" data-i="${i}" data-f="active" ${g.active!==false?'checked':''}> Active</label></div>
   <div class="row">${gField(i,'name','Name',g.name)}</div><label class="lb">Priority</label><div class="seg">`+[1,2,3,4,5].map(p=>`<button class="${(g.priority||3)==p?'on':''}" data-a="goalPri" data-i="${i}" data-v="${p}">${p}</button>`).join('')+'</div>';
   if(g.type==='prt'){
-    h+=`<div class="row">${gField(i,'testDate','Test date',g.testDate,'YYYY-MM-DD')}</div><div class="row">${gField(i,'pushupsTarget','Push-ups target',g.pushupsTarget,'e.g. 70','num')}${gField(i,'plankTarget','Plank target m:ss',g.plankTarget,'3:30')}</div>
-    <div class="row"><div class="grow"><label class="lb">Cardio event</label><select data-c="goal" data-i="${i}" data-f="cardioEvent">${Object.entries(PRT_CARDIO).map(([k,v])=>`<option value="${k}" ${(g.cardioEvent||'run')===k?'selected':''}>${v.label}</option>`).join('')}</select></div>${gField(i,'cardioTarget','Target m:ss',g.cardioTarget,'11:30')}</div>
-    <p class="mono mu tiny">Events per OPNAVINST 6110.1L (29 Dec 2025) &amp; PRP Guide-5A (Dec 2025): 2-min push-ups, forearm plank, 1.5-mile run/walk; alternate cardio (Concept2 2,000 m row, stationary bike, treadmill, 500-yd/450-m swim) only if your CO/OIC authorizes. Targets are your own numbers — no scoring tables are built in.</p>`;
+    const eff=W.prtGoalEff(st,g); const kk=W.prtKey(st,g.testDate||today()); const dis=!!(g.targetPts&&eff.derived); const D=x=>dis? x.replace('<input','<input disabled') : x;
+    h+=`<div class="row"><div class="grow"><label class="lb">Test date</label><input type="date" data-c="goal" data-i="${i}" data-f="testDate" value="${esc(g.testDate||'')}"></div></div>
+    <label class="lb">Target level (official tables)</label><select data-c="goal" data-i="${i}" data-f="targetPts"><option value="">Custom numbers (enter below)</option>${PT.levels.map(L=>`<option value="${L.pts}" ${+g.targetPts===L.pts?'selected':''}>${L.cat}${L.lvl?' '+L.lvl:''} · ${L.pts} pts</option>`).join('')}</select>`;
+    if(g.targetPts) h+= eff.derived? `<div class="why">Every event at ${esc(eff.derived.level)} for ${eff.derived.sex==='M'?'male':'female'} ${eff.derived.bracket}${g.testDate?' on '+g.testDate:''}: <b>${eff.pushupsTarget}</b> push-ups · plank <b>${eff.plankTarget}</b> · ${esc((PRT_CARDIO[g.cardioEvent||'run']||{}).label)} <b>${eff.derived.cardioSec!=null?eff.cardioTarget:'no table (bike)'}</b>. These drive the workout generator.</div>` : `<div class="banner" data-a="tab" data-v="settings">${esc(kk.err)} Tap to open Settings.</div>`;
+    h+=`<div class="row">${D(gField(i,'pushupsTarget','Push-ups target',dis?eff.pushupsTarget:g.pushupsTarget,'e.g. 70','num'))}${D(gField(i,'plankTarget','Plank target m:ss',dis?eff.plankTarget:g.plankTarget,'3:30'))}</div>
+    <div class="row"><div class="grow"><label class="lb">Cardio event</label><select data-c="goal" data-i="${i}" data-f="cardioEvent">${Object.entries(PRT_CARDIO).map(([k,v])=>`<option value="${k}" ${(g.cardioEvent||'run')===k?'selected':''}>${v.label}</option>`).join('')}</select></div>${(dis&&eff.derived.cardioSec!=null?D:(x=>x))(gField(i,'cardioTarget','Target m:ss',dis&&eff.derived.cardioSec!=null?eff.cardioTarget:g.cardioTarget,'11:30'))}</div>
+    <p class="mono mu tiny">Events per OPNAVINST 6110.1L CH-1 &amp; PRP Guide-5A (Dec 2025): 2-min push-ups, forearm plank, 1.5-mile run/walk; alternates (2,000 m row, treadmill, 500-yd/450-m swim, stationary bike) only if authorized. Targets come from ${esc(PT.meta.tables.sea)} (or 4-2 above 5,000 ft) using the age you'll be on the test date.</p>`;
   }
   if(g.type==='strength'||g.type==='hypertrophy'||g.type==='endurance') h+=`<div class="row">${gField(i,'targets','Targets (free text)',g.targets,g.type==='endurance'?'e.g. 10K under 50:00':'e.g. Bench 245, Squat 315')}</div>`;
   if(g.type==='bp') h+=`<div class="row">${gField(i,'sysTarget','Systolic target',g.sysTarget,'125','num')}${gField(i,'diaTarget','Diastolic target',g.diaTarget,'80','num')}</div>
@@ -299,10 +341,68 @@ function goalCard(g,i){
   return h;
 }
 
+/* ---------- STRENGTH PROGRAMS ---------- */
+const baseName = d => d.base==='tm'?'Training max':d.base==='5rm'?'5RM base':'1RM';
+function exKindOf(id){ const e=M()[id]; return e&&e.k==='w'?'w':'bw'; }
+function sesItemsHtml(s){ const R={supp:'suppl.',assist:'assist.',opt:'optional'};
+  return s.items.map(it=>`<div class="drill"><span>${esc(exName(it.exId))}${R[it.role]?` <span class="mu tiny">${R[it.role]}</span>`:''}</span><span class="am" style="text-align:right;padding-left:8px">${esc(W.progText(it.sets.map(x=>Object.assign({},x,{w:x.w==null?'':x.w})),U(),exKindOf(it.exId)))}</span></div>`).join(''); }
+function programCard(){
+  const p=st.program;
+  if(!p) return `<div class="card"><div class="row"><div class="grow"><span class="pill am">Strength program</span><div class="small" style="margin-top:4px">Run a template — 5/3/1, Smolov, 3-2-1 waves, Texas, Madcow, GZCLP, Candito, SS/StrongLifts or a Navy PRT hybrid. Program lifts go first; PRT and BP work fill the rest.</div></div></div><button class="btn-am" style="width:100%;margin-top:8px" data-a="progPickNew">Choose a program</button></div>`;
+  const d=PG.byId(p.id), s=PG.session(p,U()), tot=PG.totalSessions(p);
+  return `<div class="card" data-a="progOpen"><div class="row"><div class="grow"><span class="pill am">Strength program</span><h3 style="margin-top:4px">${esc(d.name)}</h3><div class="mono small">Next: ${esc(s?s.label:'complete')}</div><div class="mono mu tiny">${tot?`Session ${p.si+1}/${tot}`:`${p.log.length} sessions logged`}${p.cycle>1?` · cycle ${p.cycle}`:''}</div></div><span class="mu" style="font-size:24px">›</span></div></div>`;
+}
+function optLabel(d,p){ const out=[]; for(const [k,opts] of Object.entries(d.options||{})){ const o=opts.find(x=>x[0]===p.cfg[k])||opts[0]; out.push(o[1]); } if(d.liftChoice) out.push(PG.LIFT_NAME[p.cfg.lift]); return out.join(' · '); }
+function viewProgram(){
+  let h=`<div class="row"><button class="btn-sm" data-a="progClose">‹ Goals</button></div>`;
+  if(UI.progSetup) return h+progSetupHtml();
+  const p=st.program;
+  if(!p||UI.progView==='pick'){
+    h+=`<h2>Choose a program</h2><p class="mono mu small">Program lifts go first in every generated workout; PRT cardio and BP isometrics fill the remaining time. Barbell programs warn and substitute if your equipment set has no barbell.</p>`;
+    h+=PG.PROGRAMS.map(d=>`<div class="card" data-a="progPick" data-v="${d.id}"><div class="row"><h3 class="grow">${esc(d.name)}</h3><span class="pill">${d.dpw}×/wk</span></div><div class="small" style="margin-top:4px">${esc(d.blurb)}</div><div class="mono mu tiny" style="margin-top:6px">Based on ${baseName(d)} · ${d.kind==='pct'?(d.repeat?'repeating cycle':'fixed length'):'session-to-session progression'}<br>Source: ${esc(d.source)}</div></div>`).join('');
+    if(st.programHistory.length) h+=`<h2>Past programs</h2>`+st.programHistory.slice().reverse().map(x=>`<div class="list-item"><div class="grow"><b>${esc((PG.byId(x.id)||{}).name||x.id)}</b><div class="mono mu tiny">${x.log.length} sessions · ${x.finished?'finished '+x.finished:x.ended?'ended '+x.ended:''}</div></div></div>`).join('');
+    return h; }
+  const d=PG.byId(p.id), s=PG.session(p,U()), tot=PG.totalSessions(p);
+  h+=`<div class="card"><div class="row"><h3 class="grow">${esc(d.name)}</h3>${p.cycle>1?`<span class="pill am">cycle ${p.cycle}</span>`:''}</div>
+   ${optLabel(d,p)?`<div class="mono small mu">${esc(optLabel(d,p))}</div>`:''}
+   <div class="mono small" style="margin-top:4px">${baseName(d)}: ${PG.liftsOf(p).map(l=>`${PG.LIFT_NAME[l]} <b class="am">${Math.round(p.base[l]*2)/2}</b>`).join(' · ')} ${U()}</div>
+   ${tot?`<div class="mono mu small" style="margin-top:4px">Session ${Math.min(p.si+1,tot)} of ${tot} · ${p.log.length} logged</div><div style="height:8px;background:#0B1119;border-radius:4px;margin-top:6px"><div class="bar" style="width:${p.si/tot*100}%;height:8px"></div></div>`:`<div class="mono mu small">${p.log.length} sessions logged · weights progress every session</div>`}
+   <div class="row" style="margin-top:10px"><button class="grow btn-sm" data-a="progEdit">Edit maxes</button><button class="grow btn-sm" data-a="progBack">◀ Back</button><button class="grow btn-sm" data-a="progSkip">Skip ▶</button></div>
+   <div class="row" style="margin-top:6px"><button class="grow btn-sm btn-ghost" data-a="progPickNew">Change</button><button class="grow btn-sm btn-ghost btn-bad" data-a="progEnd">End program</button></div></div>`;
+  if(s) h+=`<h2>Today's session</h2><div class="card" style="border-color:#5a4505"><h3 class="am">${esc(s.label)}</h3>${sesItemsHtml(s)}${s.items.filter(i=>i.note).map(i=>`<div class="why">${esc(exName(i.exId))}: ${esc(i.note)}</div>`).join('')}<button class="btn-am btn-big" data-a="progGo">Generate today's workout</button></div>`;
+  if(tot){ const weeks=[]; for(let i=0;i<tot;i++){ const x=PG.session(p,U(),i); let wk=weeks[weeks.length-1]; if(!wk||wk.label!==x.week){ wk={label:x.week,list:[]}; weeks.push(wk); } wk.list.push(x); }
+    h+=`<h2>Full schedule</h2>`+weeks.map(wk=>`<div class="card"><h3>${esc(wk.label)}</h3>`+wk.list.map(x=>`<div style="margin-top:8px;${x.si===p.si?'border-left:3px solid var(--am);padding-left:8px':''}${x.si<p.si?';opacity:.55':''}" ${x.si===p.si?'id="progcur"':''}><div class="mono small"><b>${esc(x.day)}</b>${x.si===p.si?' <span class="pill am">next</span>':x.si<p.si?' ✓':''}</div>${sesItemsHtml(x)}</div>`).join('')+'</div>').join('');
+  } else { h+=`<h2>Coming up</h2>`+[0,1,2].map(k=>{ const x=PG.session(p,U(),(p.si||0)+k); return `<div class="card"><div class="mono small"><b>${esc(x.label)}</b>${k===0?' <span class="pill am">next</span>':''}</div>${sesItemsHtml(x)}</div>`; }).join('')+`<p class="mono mu tiny">Weights for later sessions update after each logged session (hit all reps → add weight; misses → repeat, then reset per the program's rules).</p>`; }
+  h+=`<p class="mono mu tiny">${esc(d.blurb)}<br>Source: ${esc(d.source)}</p>`;
+  return h;
+}
+function progSetupHtml(){
+  const S=UI.progSetup, d=PG.byId(S.id), lifts=PG.liftsFor(d,S.cfg);
+  let h=`<div class="card"><h3>${esc(d.name)}</h3><div class="small" style="margin-top:4px">${esc(d.blurb)}</div>`;
+  if(d.liftChoice) h+=`<label class="lb">Lift</label><div class="seg">${d.liftChoice.map(l=>`<button class="${S.cfg.lift===l?'on':''}" data-a="progCfg" data-f="lift" data-v="${l}">${PG.LIFT_NAME[l]}</button>`).join('')}</div>`;
+  for(const [k,opts] of Object.entries(d.options||{})) h+=`<label class="lb">${k==='variant'?'Supplemental work':'Wednesday press'}</label><div class="seg">${opts.map(([v,l])=>`<button class="${S.cfg[k]===v?'on':''}" data-a="progCfg" data-f="${k}" data-v="${v}" style="font-size:14px">${esc(l)}</button>`).join('')}</div>`;
+  h+=`<label class="lb">Your maxes (${U()}) — prefilled from logged e1RM</label>`;
+  for(const l of lifts){ const x=S.inputs[l]||{}; h+=`<div class="row"><span class="grow small" style="padding-top:24px">${PG.LIFT_NAME[l]}</span><div style="width:96px"><label class="lb">1RM</label><input inputmode="decimal" data-c="progIn" data-l="${l}" data-f="orm" value="${x.orm??''}"></div>${d.base==='5rm'?`<div style="width:96px"><label class="lb">5RM</label><input inputmode="decimal" data-c="progIn" data-l="${l}" data-f="frm" value="${x.frm??''}" placeholder="auto"></div>`:''}</div>`; }
+  h+=`<div class="mono mu tiny" style="margin-top:8px">${d.base==='tm'?'Training max = 90% of 1RM (Wendler). Percentages are of the TM.':d.base==='5rm'?'Base = your 5RM. Leave 5RM blank to estimate it as 1RM ÷ 1.1667 (Epley).':'Percentages are of your 1RM. Use a true or conservative estimated max.'}</div>
+   <div class="mono small am" id="progPrev" style="margin-top:6px">${progPreview()}</div>
+   ${S.edit&&d.kind!=='pct'?'<div class="mono tiny mu">Saving resets working weights from these maxes; your place in the rotation is kept.</div>':''}
+   <button class="btn-am btn-big" data-a="progStart">${S.edit?'Save maxes':'Start program'}</button><button class="btn-ghost" style="width:100%" data-a="progCancel">Cancel</button></div>
+   <p class="mono mu tiny">Source: ${esc(d.source)}</p>`;
+  return h;
+}
+function progPreview(){ const S=UI.progSetup; if(!S) return ''; const d=PG.byId(S.id); const q=PG.create(S.id,S.inputs,U(),S.cfg); const ls=PG.liftsOf(q);
+  if(ls.some(l=>!q.base[l])) return 'Enter a max for every lift.';
+  const s=PG.session(q,U(),0); return `${baseName(d)}: ${ls.map(l=>`${PG.LIFT_NAME[l]} ${Math.round(q.base[l]*2)/2}`).join(' · ')}<br>First session: ${s.items.filter(i=>i.role==='main').map(i=>`${exName(i.exId)} ${W.progText(i.sets.map(x=>Object.assign({},x,{w:x.w==null?'':x.w})),U(),'w')}`).join(' · ')}`; }
+function prefill(d,cfg,prev){ const o={}; for(const l of PG.liftsFor(d,cfg)){ if(prev&&prev[l]){ o[l]=Object.assign({},prev[l]); continue; } const e=W.bestE1rm(st,PG.LIFT_EX[l]); o[l]={orm:e||'', frm:''}; } return o; }
+
 /* ---------- SETTINGS ---------- */
 function viewSettings(){
-  const s=st.settings;
-  let h=`<div class="card"><label class="lb">Units</label><div class="seg">${['lb','kg'].map(u=>`<button class="${s.units===u?'on':''}" data-a="units" data-v="${u}">${u}</button>`).join('')}</div>
+  const s=st.settings; const pf=st.profile; const pa=W.profileAge(st,today()); const br=W.prtBracket(pa.age);
+  let h=`<h2 style="margin-top:6px">Profile</h2><div class="card"><div class="row"><div class="grow"><label class="lb">Birthdate</label><input type="date" data-c="profile" data-f="birthdate" value="${esc(pf.birthdate||'')}"></div><div style="width:100px"><label class="lb">or Age</label><input inputmode="numeric" data-c="profile" data-f="age" value="${esc(pf.birthdate?'':pf.age||'')}" ${pf.birthdate?'disabled placeholder="auto"':''}></div></div>
+  <label class="lb">Sex (selects the PRT table)</label><div class="seg">${[['M','Male'],['F','Female']].map(([k,l])=>`<button class="${pf.sex===k?'on':''}" data-a="profSet" data-f="sex" data-v="${k}">${l}</button>`).join('')}</div>
+  <label class="lb">PRT altitude (Table 4-1 / 4-2)</label><div class="seg">${[['sea','< 5,000 ft'],['alt','> 5,000 ft']].map(([k,l])=>`<button class="${(pf.altitude||'sea')===k?'on':''}" data-a="profSet" data-f="altitude" data-v="${k}">${l}</button>`).join('')}</div>
+  <div class="mono small">${pa.age!=null? `Age ${pa.age} today → PRT bracket <b class="am">${br||'under 17 (not covered)'}</b>${pf.birthdate?'. Each test is scored with your age on its test date.':'. Enter a birthdate instead so the bracket updates on its own.'}` : 'Set a birthdate (or age) and sex to score PRTs against the official tables.'}</div></div>
+  <h2>Preferences</h2><div class="card"><label class="lb">Units</label><div class="seg">${['lb','kg'].map(u=>`<button class="${s.units===u?'on':''}" data-a="units" data-v="${u}">${u}</button>`).join('')}</div>
   <label class="lb">1RM formula (primary)</label><div class="seg">${[['epley','Epley'],['brzycki','Brzycki']].map(([k,l])=>`<button class="${s.formula===k?'on':''}" data-a="setting" data-f="formula" data-v="${k}">${l}</button>`).join('')}</div>
   <label class="lb">Default length</label><div class="seg">${[15,30,45,60,90].map(t=>`<button class="${s.defaultTier==t?'on':''}" data-a="setting" data-f="defaultTier" data-v="${t}" data-n="1">${t}</button>`).join('')}</div>
   <label class="lb">Preferred cardio (non-PRT days)</label><select data-c="setting" data-f="cardioPref">${[['run','Run'],['row','Row'],['bike','Bike'],['swim','Swim']].map(([k,l])=>`<option value="${k}" ${s.cardioPref===k?'selected':''}>${l}</option>`).join('')}</select>
@@ -316,7 +416,10 @@ function viewSettings(){
    <button class="btn-ghost btn-bad" style="width:100%;margin-top:8px" data-a="erase">Erase all data</button></div>`;
   h+=`<h2>About</h2><div class="card mono small" style="font-weight:400;line-height:1.5">Everything stays on this device; nothing is sent anywhere. Works offline once loaded.<br><br>
    <b>Progression:</b> double progression — hit the top of the rep range on every set → +5 lb upper / +10 lb lower (kg: 2.5/5). In range → same weight, beat reps. Missed twice in a row → 10% deload. Push-ups +2 reps/set, holds +10 s, intervals +1 rep, tempo +2 min, steady cardio +10% duration.<br><br>
-   <b>Sources:</b> Navy PRT events — OPNAVINST 6110.1L (29 Dec 2025) and PRP Guide-5A Physical Readiness Test (Dec 2025), mynavyhr.navy.mil. BP exercise — 2025 AHA/ACC High Blood Pressure Guideline, Table 12 (aerobic 90–150 min/wk; dynamic resistance 3×10 @ 50–80% 1RM; isometric handgrip 4×2 min, 30–40% max, 3×/wk).<br><br>
+   <b>Version:</b> ${W.APP_VERSION} (data schema ${W.SCHEMA}).<br><br>
+   <b>Navy PRT scoring:</b> ${esc(PT.meta.title)}, ${esc(PT.meta.date)} (${esc(PT.meta.issuer||'')}; policy ${esc(PT.meta.policy)}). ${esc(PT.meta.tables.sea)}; ${esc(PT.meta.tables.alt)}. All 11 age brackets × male/female × 12 levels for push-ups, forearm plank, 1.5-mi run, 2,000 m row, 500-yd and 450-m swim, encoded verbatim (checked ${esc(PT.meta.checked)}). Stationary bike: no published table, not scored. <a href="${esc(PT.meta.url)}" target="_blank" rel="noopener">Source PDF (mynavyhr.navy.mil)</a><br><br>
+   <b>Strength programs:</b><br>${PG.PROGRAMS.map(d=>`• ${esc(d.name)}: ${esc(d.source)}`).join('<br>')}<br><br>
+   <b>Sources:</b> Navy PRT events — OPNAVINST 6110.1L CH-1 and PRP Guide-5A Physical Readiness Test (Dec 2025), mynavyhr.navy.mil. BP exercise — 2025 AHA/ACC High Blood Pressure Guideline, Table 12 (aerobic 90–150 min/wk; dynamic resistance 3×10 @ 50–80% 1RM; isometric handgrip 4×2 min, 30–40% max, 3×/wk).<br><br>
    Not medical advice. Fonts: Barlow Condensed &amp; IBM Plex Mono (SIL Open Font License).</div>`;
   return h;
 }
@@ -328,12 +431,13 @@ document.addEventListener('click', e=>{
   if(el.tagName==='INPUT'||el.tagName==='SELECT') return;
   const f=A[el.dataset.a]; if(f){ e.preventDefault(); f(el,e); }
 });
-document.addEventListener('change', e=>{ const el=e.target; const c=el.dataset&&el.dataset.c; if(c&&C[c]) C[c](el); });
+document.addEventListener('change', e=>{ const el=e.target; const c=el.dataset&&el.dataset.c; if(c&&C[c]) C[c](el); if(el.closest&&el.closest('[data-live=prt]')) prtLive(); });
+document.addEventListener('input', e=>{ const el=e.target; if(el.closest&&el.closest('[data-live=prt]')) prtLive(); });
 const C = {};
 A.tab = el => { UI.tab=el.dataset.v; UI.editId=null; closeSheet(); render(); window.scrollTo(0,0); };
 A.tier = el => { UI.tier=+el.dataset.v; render(); };
 A.eq = el => { UI.eqId=el.dataset.v; render(); };
-A.generate = () => { const tier=UI.tier||st.settings.defaultTier, eqId=UI.eqId||st.settings.defaultEq; UI.plan=W.generate(st,{tier,eqId,date:today()}); render(); window.scrollTo(0,0); };
+A.generate = () => { const tier=UI.tier||st.settings.defaultTier, eqId=UI.eqId||st.settings.defaultEq; UI.plan=W.generate(st,{tier,eqId,date:today(),program:UI.useProg!==false}); render(); window.scrollTo(0,0); };
 A.planCancel = () => { UI.plan=null; render(); window.scrollTo(0,0); };
 A.planRemove = el => { UI.plan.items.splice(+el.dataset.i,1); recalcPlan(); render(); };
 function recalcPlan(){ const p=UI.plan; p.estMin=p.warmMin+p.items.reduce((a,i)=>a+(i.estMin||0),0); }
@@ -367,7 +471,7 @@ A.tick = el => {
   el.parentElement.classList.toggle('done',s.done);
   if(s.done && !UI.editId){
     // carry weight forward to the next unfinished set if user changed it
-    const nx=it.sets[+el.dataset.s+1]; if(nx&&!nx.done&&it.kind==='w'&&s.w!==''&&s.w!==it.presc.w){ nx.w=s.w; }
+    const nx=it.sets[+el.dataset.s+1]; if(nx&&!nx.done&&it.kind==='w'&&s.w!==''&&s.w!==it.presc.w&&!(it.presc&&it.presc.prog)){ nx.w=s.w; }
     const last = it.sets.every(x=>x.done); startTimer(last? Math.min(90,it.rest||60) : (it.rest||60));
   }
   render();
@@ -385,13 +489,14 @@ A.finish = () => {
   if(!done && !confirm('Nothing logged yet. Finish anyway?')) return;
   w.items=w.items.filter(it=>W.itemDone(it) || confirm(`"${exName(it.exId)}" has nothing logged. Keep it in the log?`));
   w.finishedAt=new Date().toISOString(); st.workouts.push(w); st.active=null; stopTimer();
-  const prs=W.newPRs(st,w); save();
+  const prs=W.newPRs(st,w); let pm=[]; try{ pm=W.programAfterFinish(st,w); }catch(err){ console.warn('program advance failed',err); } save();
   const dur=Math.round((new Date(w.finishedAt)-new Date(w.startedAt))/60000);
   const sets=w.items.reduce((a,it)=>a+(it.sets?W.doneSets(it).length:0),0);
   const vol=w.items.reduce((a,it)=>a+(it.kind==='w'?W.doneSets(it).reduce((x,s)=>x+(+s.w||0)*(+s.reps||0),0):0),0);
   render();
   openSheet(`<h3 class="am" style="font-size:28px">Workout saved</h3><div class="kpis" style="margin:10px 0"><div class="kpi"><b>${dur}</b><span>Minutes</span></div><div class="kpi"><b>${sets}</b><span>Sets</span></div><div class="kpi"><b>${Math.round(vol).toLocaleString()}</b><span>Volume ${U()}</span></div><div class="kpi"><b>${prs.length}</b><span>PRs</span></div></div>`+
-   (prs.length?'<h3>New records</h3>'+prs.map(p=>`<div class="why">${esc(p)}</div>`).join(''):'')+`<button class="btn-am btn-big" data-a="closeSheet">Done</button>`);
+   (prs.length?'<h3>New records</h3>'+prs.map(p=>`<div class="why">${esc(p)}</div>`).join(''):'')+
+   (w.program?`<h3 style="margin-top:10px">Program · ${esc(w.program.label)} logged</h3>`+pm.map(p=>`<div class="why">${esc(p)}</div>`).join('')+(st.program?`<div class="mono small mu" style="margin-top:6px">Next: ${esc((PG.session(st.program,U())||{label:'complete'}).label)}</div>`:''):'')+`<button class="btn-am btn-big" data-a="closeSheet">Done</button>`);
 };
 A.discard = () => { if(confirm('Discard this workout? Nothing will be saved.')){ st.active=null; stopTimer(); save(); render(); } };
 A.openW = el => { UI.editId=el.dataset.v; render(); window.scrollTo(0,0); };
@@ -403,8 +508,9 @@ A.quickBody = () => { UI.tab='log'; UI.logSeg='body'; render(); setTimeout(()=>$
 A.saveBP = () => { const s=num($('#bpS').value), d=num($('#bpD').value); if(!s||!d) return toast('Enter systolic and diastolic');
   const now=new Date(); st.bp.push({id:W.uid(),date:$('#bpDate').value||today(),time:String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0'),sys:s,dia:d,pulse:num($('#bpP').value),arm:$('#bpA').value,notes:$('#bpN').value}); save(); toast('BP saved'); render(); };
 A.saveBody = () => { const w=num($('#bwW').value); if(!w) return toast('Enter weight'); st.body.push({id:W.uid(),date:$('#bwDate').value||today(),weight:w,waist:num($('#bwWaist').value),bf:num($('#bwBf').value),notes:''}); save(); toast('Saved'); render(); };
-A.savePRT = () => { const pu=num($('#pPu').value), pl=W.parseTime($('#pPl').value), ct=W.parseTime($('#pCt').value); if(pu===''&&!pl&&!ct) return toast('Enter at least one result');
-  st.prt.push({id:W.uid(),date:$('#pDate').value||today(),official:$('#pOff').checked,pushups:pu===''?null:pu,plankSec:pl,cardioEvent:$('#pEv').value,cardioSec:ct,notes:''}); save(); toast('PRT result saved'); render(); };
+A.savePRT = () => { const r=readPrtForm(); if(r.pushups==null&&!r.plankSec&&!r.cardioSec) return toast('Enter at least one result');
+  r.id=W.uid(); if(r.altitude===(st.profile.altitude||'sea')) delete r.altitude; st.prt.push(r); save(); const sc=W.prtScore(st,r); toast(sc.overall&&sc.overall.name?'Saved · '+sc.overall.name:'PRT result saved'); render(); };
+A.prtOpen = el => { const r=st.prt.find(x=>x.id===el.dataset.v); if(!r) return; openSheet(`<h3>PRT ${r.date} · ${r.official?'official':'practice'}</h3>${prtScoreHtml(W.prtScore(st,r))}<p class="mono mu tiny">${prtCite()}</p><button class="btn-am btn-big" data-a="closeSheet">Close</button>`); };
 A.delRec = el => { if(!confirm('Delete this entry?')) return; const k=el.dataset.k; st[k]=st[k].filter(r=>r.id!==el.dataset.v); save(); render(); };
 C.statsEx = el => { UI.statsEx=el.value; render(); };
 /* goals */
@@ -416,13 +522,37 @@ A.goalDel = el => { if(!confirm('Delete this goal?')) return; st.goals.splice(+e
 A.goalExAdd = el => { UI.goalIdx=+el.dataset.i; exPicker('goalExPick'); };
 A.goalExPick = el => { const g=st.goals[UI.goalIdx]; (g.exIds=g.exIds||[]).push(el.dataset.v); save(); closeSheet(); render(); };
 A.goalExDel = el => { st.goals[+el.dataset.i].exIds.splice(+el.dataset.v,1); save(); render(); };
-C.goal = el => { const g=st.goals[+el.dataset.i]; const f=el.dataset.f; g[f]= f==='active'? el.checked : el.value; save(); if(f==='active') render(); };
+C.goal = el => { const g=st.goals[+el.dataset.i]; const f=el.dataset.f; g[f]= f==='active'? el.checked : f==='targetPts'? (el.value?+el.value:'') : el.value; save(); if(['active','targetPts','cardioEvent','testDate'].includes(f)) render(); };
+C.useProg = el => { UI.useProg=el.checked; };
+C.profile = el => { st.profile[el.dataset.f]=el.value; save(); render(); };
+A.profSet = el => { st.profile[el.dataset.f]=el.dataset.v; save(); render(); };
+/* programs */
+A.progOpen = () => { UI.tab='goals'; UI.progView='view'; UI.progSetup=null; UI.editId=null; render(); window.scrollTo(0,0); };
+A.progClose = () => { UI.progView=null; UI.progSetup=null; render(); window.scrollTo(0,0); };
+A.progPickNew = () => { UI.tab='goals'; UI.progView='pick'; UI.progSetup=null; render(); window.scrollTo(0,0); };
+A.progPick = el => { const d=PG.byId(el.dataset.v); const cfg={}; for(const [k,opts] of Object.entries(d.options||{})) cfg[k]=opts[0][0]; if(d.liftChoice) cfg.lift=d.liftChoice[0];
+  UI.progSetup={id:d.id,cfg,inputs:prefill(d,cfg)}; render(); window.scrollTo(0,0); };
+A.progCfg = el => { const S=UI.progSetup; S.cfg[el.dataset.f]=el.dataset.v; S.inputs=prefill(PG.byId(S.id),S.cfg,S.inputs); render(); };
+C.progIn = el => { const S=UI.progSetup; (S.inputs[el.dataset.l]=S.inputs[el.dataset.l]||{})[el.dataset.f]=num(el.value); const pv=$('#progPrev'); if(pv) pv.innerHTML=progPreview(); };
+A.progEdit = () => { const p=st.program; UI.progSetup={id:p.id,cfg:Object.assign({},p.cfg),inputs:JSON.parse(JSON.stringify(p.inputs)),edit:true}; render(); window.scrollTo(0,0); };
+A.progCancel = () => { UI.progSetup=null; render(); };
+A.progStart = () => { const S=UI.progSetup; document.querySelectorAll('[data-c=progIn]').forEach(C.progIn);
+  const q=PG.create(S.id,S.inputs,U(),S.cfg); if(PG.liftsOf(q).some(l=>!q.base[l])) return toast('Enter a max for every lift');
+  if(S.edit&&st.program){ const p=st.program; q.si=p.si; q.cycle=p.cycle; q.log=p.log; q.start=p.start; if(PG.byId(q.id).kind!=='pct'){} st.program=q; toast('Maxes updated'); }
+  else { if(st.program){ if(!confirm('Replace your current program? Its history is kept.')) return; st.program.ended=today(); st.program.active=false; st.programHistory.push(st.program); }
+    q.start=today(); st.program=q; toast(PG.byId(q.id).name+' started'); }
+  UI.progSetup=null; UI.progView='view'; save(); render(); window.scrollTo(0,0); };
+A.progBack = () => { PG.back(st.program); save(); render(); };
+A.progSkip = () => { PG.skip(st.program); save(); render(); };
+A.progEnd = () => { if(!confirm('End this program? Its history is kept.')) return; const p=st.program; p.active=false; p.ended=today(); st.programHistory.push(p); st.program=null; UI.progView=null; save(); render(); };
+A.progGo = () => { UI.tab='today'; UI.progView=null; UI.useProg=true; A.generate(); };
 /* settings */
 A.setting = el => { st.settings[el.dataset.f]= el.dataset.n? +el.dataset.v : el.dataset.v; save(); render(); };
 C.setting = el => { st.settings[el.dataset.f]=el.value; save(); };
 A.units = el => { const u=el.dataset.v; if(u===st.settings.units) return; if(!confirm(`Switch to ${u}? All logged weights will be converted.`)) return;
   const f=u==='kg'?0.45359237:2.20462262; const cv=x=> (x===''||x==null)? x : Math.round(+x*f*2)/2;
   for(const w of st.workouts.concat(st.active?[st.active]:[])) for(const it of w.items){ if(it.kind==='w'){ it.sets.forEach(s=>s.w=cv(s.w)); if(it.presc) it.presc.w=cv(it.presc.w); } }
+  const pcv=x=>Math.round(+x*f*10)/10; for(const pr of [st.program].concat(st.programHistory||[])){ if(!pr) continue; for(const l in pr.base) pr.base[l]=pcv(pr.base[l]); for(const l in pr.inputs){ pr.inputs[l].orm=pcv(pr.inputs[l].orm); if(pr.inputs[l].frm) pr.inputs[l].frm=pcv(pr.inputs[l].frm); } for(const k in pr.lp){ if(pr.lp[k].w) pr.lp[k].w=PG.rnd(pr.lp[k].w*f,u); if(pr.lp[k].w10) pr.lp[k].w10=PG.rnd(pr.lp[k].w10*f,u); } pr.units=u; }
   st.body.forEach(r=>r.weight=cv(r.weight)); st.equipmentSets.forEach(e=>{ e.dbMax=cv(e.dbMax); e.kbMax=cv(e.kbMax); });
   st.settings.units=u; save(); render(); };
 function eqEditor(e, isNew){
@@ -489,6 +619,18 @@ A.holdCancel = () => { clearInterval(HT.h); $('#holdov').classList.remove('show'
   await loadState();
   try{ if(navigator.storage&&navigator.storage.persist){ UI.persisted = await navigator.storage.persisted(); if(!UI.persisted) UI.persisted = await navigator.storage.persist(); } }catch(e){}
   render();
-  if('serviceWorker' in navigator && location.protocol!=='file:') navigator.serviceWorker.register('service-worker.js').catch(()=>{});
+  if('serviceWorker' in navigator && location.protocol!=='file:') registerSW();
 })();
+function showUpdate(reg){ UI.swReg=reg||UI.swReg; const b=$('#updbar'); if(b) b.classList.add('show'); }
+A.applyUpdate = () => { UI.updateClicked=true; persistNow(); const r=UI.swReg; if(r&&r.waiting) r.waiting.postMessage({type:'SKIP_WAITING'}); else location.reload(); setTimeout(()=>location.reload(),3000); };
+function registerSW(){
+  const hadCtl=!!navigator.serviceWorker.controller; let reloading=false;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(reloading) return; if(UI.updateClicked){ reloading=true; location.reload(); } else if(hadCtl) showUpdate(); });
+  navigator.serviceWorker.register('service-worker.js').then(reg=>{
+    if(reg.waiting && navigator.serviceWorker.controller) showUpdate(reg);
+    reg.addEventListener('updatefound',()=>{ const nw=reg.installing; if(nw) nw.addEventListener('statechange',()=>{ if(nw.state==='installed' && navigator.serviceWorker.controller) showUpdate(reg); }); });
+    document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') reg.update().catch(()=>{}); });
+    setInterval(()=>reg.update().catch(()=>{}), 3600e3);
+  }).catch(()=>{});
+}
 window.__app={get state(){return st;}, set state(v){st=v;}, UI, render, persistNow, A};

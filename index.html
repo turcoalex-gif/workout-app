@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Workout">
 <meta name="theme-color" content="#0A0E14">
 <meta name="format-detection" content="telephone=no">
+<meta name="app-version" content="2.0.0">
 <title>Workout</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -109,15 +110,20 @@ svg.chart text{font-family:var(--m);font-size:11px;fill:var(--mu)}
 .drill{display:flex;justify-content:space-between;font-family:var(--m);font-weight:400;font-size:15px;padding:6px 0;border-bottom:1px dashed var(--ln)}
 .hide{display:none!important}
 a{color:var(--am)}
+#updbar{position:fixed;left:10px;right:10px;top:calc(8px + var(--st));z-index:40;background:var(--am);color:#0A0E14;border-radius:14px;padding:12px 14px;font-size:18px;display:none;box-shadow:0 8px 30px rgba(0,0,0,.6);text-align:center;cursor:pointer}
+#updbar.show{display:block}
+#ver{font-family:var(--m);font-size:11px;color:var(--mu);text-align:center;padding:4px 0 0}
 </style>
 </head>
 <body>
 <header><h1 id="title">Workout</h1><span class="sub" id="hdrsub"></span></header>
 <main id="view"><p class="mono mu">Loading…</p></main>
+<div id="ver" data-version="2.0.0">Workout v2.0.0</div>
 <div id="timer"><div class="grow"><div class="lbl">REST</div><div class="t" id="tleft">0:00</div></div><button data-a="timerAdd" data-v="-15">−15</button><button data-a="timerAdd" data-v="15">+15</button><button data-a="timerSkip">Skip</button></div>
 <div id="holdov"><div class="mu" id="holdname" style="font-size:22px"></div><div class="big" id="holdt">0:00</div><div class="mono mu" id="holdtgt"></div><button class="btn-am btn-big" data-a="holdStop" style="max-width:340px">Done / Stop</button><button class="btn-ghost" data-a="holdCancel">Cancel</button></div>
 <div id="sheet"><div class="panel" id="sheetp"></div></div>
 <div id="toast"></div>
+<div id="updbar" data-a="applyUpdate" role="button">Update available – tap to reload</div>
 <nav id="tabs">
  <button data-a="tab" data-v="today"><svg viewBox="0 0 24 24"><path d="M3 12h3m12 0h3M6 8v8M18 8v8M9 6v12M15 6v12M9 12h6"/></svg>Today</button>
  <button data-a="tab" data-v="log"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM8 9h8M8 13h8M8 17h5"/></svg>Log</button>
@@ -127,6 +133,8 @@ a{color:var(--am)}
 </nav>
 <input type="file" id="importFile" accept="application/json,.json" class="hide">
 <script src="data.js"></script>
+<script src="prt_tables.js"></script>
+<script src="programs.js"></script>
 <script src="engine.js"></script>
 <script src="app.js"></script>
 </body>

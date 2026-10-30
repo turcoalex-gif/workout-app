@@ -36,6 +36,8 @@ const EX_RAW = [
  ['jump_squat','Jump Squat','squat','bw',[],['quads','glutes'],[8,15],0,9],
  // hinge
  ['deadlift','Deadlift','hinge','w',['barbell'],['hamstrings','glutes','back'],[3,6],10,1,1],
+ ['sldl','Stiff-leg Deadlift','hinge','w',['barbell'],['hamstrings','glutes','back'],[6,10],10,3,.7],
+ ['power_clean','Power Clean','hinge','w',['barbell'],['glutes','hamstrings','back'],[2,5],5,6,.6],
  ['rdl','Romanian Deadlift','hinge','w',['barbell'],['hamstrings','glutes'],[6,10],10,2,.7],
  ['hip_thrust','Barbell Hip Thrust','hinge','w',['barbell','bench'],['glutes','hamstrings'],[6,12],10,3,.9],
  ['db_rdl','DB Romanian Deadlift (pair)','hinge','w',['dumbbell'],['hamstrings','glutes'],[8,12],5,4,.3],
@@ -175,8 +177,8 @@ const PRT_CARDIO = {
   row:{label:'2,000 m row (Concept2)', dist:'2000 m'},
   swim500:{label:'500-yd swim', dist:'500 yd'},
   swim450:{label:'450-m swim', dist:'450 m'},
-  bike:{label:'Stationary bike', dist:'timed'},
-  treadmill:{label:'Treadmill 1.5 mi', dist:'1.5 mi'}
+  bike:{label:'Stationary bike (12 min, calories)', dist:'12 min'},
+  treadmill:{label:'Treadmill 1.5 mi (1.0% incline)', dist:'1.5 mi'}
 };
 var WO_DATA = {EQUIP,MUSCLES,PATTERNS,MAIN_PATTERNS,ACC_PATTERNS,CARDIO_PATTERNS,EXERCISES,GOAL_TYPES,PRT_CARDIO};
 if (typeof module !== "undefined") module.exports = WO_DATA; else window.WO_DATA = WO_DATA;
